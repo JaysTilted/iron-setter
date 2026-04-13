@@ -915,10 +915,10 @@ def _build_system_prompt_compiled(ctx: PipelineContext, agent_type: str, now_str
     if matched_agent:
         # Find matched service for prep_instructions / rebooking_interval
         matched_service = None
+        _setter = ctx.compiled.get("_matched_setter") or {}
         if isinstance(ctx.qualification_notes, dict):
             matched_services = ctx.qualification_notes.get("matched_services", [])
             if matched_services:
-                _setter = ctx.compiled.get("_matched_setter") or {}
                 services_list = (_setter.get("services") or {}).get("services", [])
                 for svc in services_list:
                     if svc.get("name") in matched_services:
