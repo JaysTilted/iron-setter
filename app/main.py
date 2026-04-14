@@ -621,6 +621,25 @@ async def portal_change_request(request: Request, body: PortalChangeRequestBody)
     }
 
 
+def _is_contact_allowed(contact_id: str, config: dict) -> tuple[bool, str]:
+    """Check if a contact is allowed to trigger AI responses.
+
+    Reads `system_config.test_mode` block:
+      - `enabled: bool` — if true, only contacts on the allowlist are processed
+      - `allowed_contact_ids: list[str]` — contacts that bypass the gate
+
+    Returns (allowed, reason). If test_mode is disabled, all contacts pass.
+    """
+    sys_config = (config or {}).get("system_config") or {}
+    test_mode = sys_config.get("test_mode") or {}
+    if not test_mode.get("enabled"):
+        return True, ""
+    allowed_ids = test_mode.get("allowed_contact_ids") or []
+    if contact_id in allowed_ids:
+        return True, "allowlisted"
+    return False, f"test_mode enabled, contact {contact_id} not in allowlist"
+
+
 @app.post("/webhook/reply")
 @app.post("/webhook/{entity_ref}/reply")
 async def reply_webhook(request: Request, entity_ref: str = ""):
@@ -658,6 +677,12 @@ async def reply_webhook(request: Request, entity_ref: str = ""):
     slug = config.get("slug") or config.get("name", entity_id[:8])
 
     set_request_context(entity_id=entity_id, entity_slug=slug, trigger_type="reply", contact_id=contact_id)
+
+    allowed, reason = _is_contact_allowed(contact_id, config)
+    if not allowed:
+        logger.info("INBOUND | blocked by test_mode | contact=%s | reason=%s", contact_id, reason)
+        clear_request_context()
+        return {"status": "skipped", "reason": "test_mode", "contact_id": contact_id}
 
     try:
         from app.services.debounce import debounce_inbound
@@ -832,6 +857,12 @@ async def resolve_outreach_webhook(request: Request, entity_ref: str = ""):
 
     slug = config.get("slug") or config.get("name", entity_id[:8])
     set_request_context(entity_id=entity_id, entity_slug=slug, trigger_type="form_submission", contact_id=contact_id)
+
+    allowed, reason = _is_contact_allowed(contact_id, config)
+    if not allowed:
+        logger.info("RESOLVE_OUTREACH | blocked by test_mode | contact=%s | reason=%s", contact_id, reason)
+        clear_request_context()
+        return {"status": "skipped", "reason": "test_mode", "contact_id": contact_id}
 
     try:
         from app.webhooks.standard_parser import extract_custom_field, extract_location
@@ -1058,6 +1089,12 @@ async def call_event_webhook(entity_ref: str = "", request: Request = None, test
 
     slug = config.get("slug") or config.get("name", entity_id[:8])
     set_request_context(entity_id=entity_id, entity_slug=slug, trigger_type="call_event", contact_id=contact_id)
+
+    allowed, reason = _is_contact_allowed(contact_id, config)
+    if not allowed:
+        logger.info("CALL_EVENT | blocked by test_mode | contact=%s | reason=%s", contact_id, reason)
+        clear_request_context()
+        return {"status": "skipped", "reason": "test_mode", "contact_id": contact_id}
 
     from app.services.workflow_tracker import WorkflowTracker
 
