@@ -70,6 +70,21 @@ def compile_agent_prompt(agent: dict[str, Any] | None) -> str:
     if role_ctx:
         parts.append(f"## Role & Context\n{role_ctx}")
 
+    # Conversation Framework (stages array)
+    cf = sections.get("conversation_framework", {})
+    if isinstance(cf, dict) and cf.get("enabled"):
+        stage_lines: list[str] = []
+        for st in cf.get("stages", []) or []:
+            if isinstance(st, dict) and st.get("enabled"):
+                label = (st.get("label") or "").strip()
+                prompt = (st.get("prompt") or "").strip()
+                if label and prompt:
+                    stage_lines.append(f"- **{label}**: {prompt}")
+                elif label:
+                    stage_lines.append(f"- **{label}**")
+        if stage_lines:
+            parts.append("## Conversation Framework\n" + "\n".join(stage_lines))
+
     # Lead source
     source_text = _compile_multi_select_sources(sections.get("lead_source"))
     if source_text:
@@ -103,6 +118,24 @@ def compile_agent_prompt(agent: dict[str, Any] | None) -> str:
         prompt = (mbp.get("prompt") or "").strip()
         if prompt:
             parts.append(f"## Max Booking Pushes\n{prompt.replace('{max}', str(max_val))}")
+
+    # === REPLY SCRIPTS (verbatim templates for specific triggers) ===
+    # These are high-priority trigger→reply scripts compiled ABOVE behavior flags so
+    # the agent treats them as first-match rules, not general guidance.
+    script_keys = [
+        ("direct_interest_booking", "Direct Interest → Book Discovery Call"),
+        ("more_info_request", "More Info Request → Link Drop"),
+        ("existing_setup_drop", "Existing Setup → Graceful Drop"),
+    ]
+    script_parts: list[str] = []
+    for key, label in script_keys:
+        sec = sections.get(key, {})
+        if isinstance(sec, dict) and sec.get("enabled"):
+            prompt = (sec.get("prompt") or "").strip()
+            if prompt:
+                script_parts.append(f"### {label}\n{prompt}")
+    if script_parts:
+        parts.append("## Reply Scripts\n" + "\n\n".join(script_parts))
 
     # === BEHAVIOR group ===
     behavior_keys = [
