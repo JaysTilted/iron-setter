@@ -621,12 +621,32 @@ async def portal_change_request(request: Request, body: PortalChangeRequestBody)
     }
 
 
-def _is_contact_allowed(contact_id: str, config: dict) -> tuple[bool, str]:
+def _extract_webhook_tags(body: dict) -> list[str]:
+    """GHL webhook payloads carry contact tags in one of several shapes
+    depending on workflow trigger. Normalize to a list[str], lowercase.
+    """
+    tags: list = []
+    raw = body.get("tags") or body.get("contact_tags") or body.get("contact", {}).get("tags", []) or []
+    if isinstance(raw, str):
+        tags = [t.strip() for t in raw.split(",") if t.strip()]
+    elif isinstance(raw, list):
+        tags = [str(t).strip() for t in raw if t]
+    return [t.lower() for t in tags]
+
+
+def _is_contact_allowed(
+    contact_id: str,
+    config: dict,
+    contact_tags: list[str] | None = None,
+) -> tuple[bool, str]:
     """Check if a contact is allowed to trigger AI responses.
 
     Reads `system_config.test_mode` block:
-      - `enabled: bool` — if true, only contacts on the allowlist are processed
+      - `enabled: bool` — if true, only allowlisted contacts are processed
       - `allowed_contact_ids: list[str]` — contacts that bypass the gate
+      - `allowed_tags: list[str]` — any contact carrying one of these tags
+        (case-insensitive) bypasses the gate. Lets Jay tag real leads with
+        `ai-test` in GHL to opt them in one-by-one without a redeploy.
 
     Returns (allowed, reason). If test_mode is disabled, all contacts pass.
     """
@@ -634,9 +654,19 @@ def _is_contact_allowed(contact_id: str, config: dict) -> tuple[bool, str]:
     test_mode = sys_config.get("test_mode") or {}
     if not test_mode.get("enabled"):
         return True, ""
+
     allowed_ids = test_mode.get("allowed_contact_ids") or []
     if contact_id in allowed_ids:
-        return True, "allowlisted"
+        return True, "allowlisted_id"
+
+    allowed_tags_raw = test_mode.get("allowed_tags") or []
+    if allowed_tags_raw and contact_tags:
+        allowed_tags = {str(t).strip().lower() for t in allowed_tags_raw if t}
+        tags_lower = {t.lower() for t in contact_tags}
+        if allowed_tags & tags_lower:
+            matched = sorted(allowed_tags & tags_lower)[0]
+            return True, f"allowlisted_tag:{matched}"
+
     return False, f"test_mode enabled, contact {contact_id} not in allowlist"
 
 
@@ -678,7 +708,7 @@ async def reply_webhook(request: Request, entity_ref: str = ""):
 
     set_request_context(entity_id=entity_id, entity_slug=slug, trigger_type="reply", contact_id=contact_id)
 
-    allowed, reason = _is_contact_allowed(contact_id, config)
+    allowed, reason = _is_contact_allowed(contact_id, config, _extract_webhook_tags(body))
     if not allowed:
         logger.info("INBOUND | blocked by test_mode | contact=%s | reason=%s", contact_id, reason)
         clear_request_context()
@@ -688,7 +718,7 @@ async def reply_webhook(request: Request, entity_ref: str = ""):
         from app.services.debounce import debounce_inbound
         await debounce_inbound(entity_id, contact_id, body, config)
 
-        logger.info("INBOUND | accepted | contact=%s | entity=%s", contact_id, entity_id[:8])
+        logger.info("INBOUND | accepted | contact=%s | entity=%s | reason=%s", contact_id, entity_id[:8], reason)
         return {"status": "accepted", "contact_id": contact_id}
 
     except Exception as e:
@@ -858,7 +888,7 @@ async def resolve_outreach_webhook(request: Request, entity_ref: str = ""):
     slug = config.get("slug") or config.get("name", entity_id[:8])
     set_request_context(entity_id=entity_id, entity_slug=slug, trigger_type="form_submission", contact_id=contact_id)
 
-    allowed, reason = _is_contact_allowed(contact_id, config)
+    allowed, reason = _is_contact_allowed(contact_id, config, _extract_webhook_tags(body))
     if not allowed:
         logger.info("RESOLVE_OUTREACH | blocked by test_mode | contact=%s | reason=%s", contact_id, reason)
         clear_request_context()
@@ -1090,7 +1120,7 @@ async def call_event_webhook(entity_ref: str = "", request: Request = None, test
     slug = config.get("slug") or config.get("name", entity_id[:8])
     set_request_context(entity_id=entity_id, entity_slug=slug, trigger_type="call_event", contact_id=contact_id)
 
-    allowed, reason = _is_contact_allowed(contact_id, config)
+    allowed, reason = _is_contact_allowed(contact_id, config, _extract_webhook_tags(body))
     if not allowed:
         logger.info("CALL_EVENT | blocked by test_mode | contact=%s | reason=%s", contact_id, reason)
         clear_request_context()
