@@ -145,6 +145,7 @@ class Turn(BaseModel):
 
     message: str = ""            # Hardcoded lead message
     intent: str = ""             # Dynamic generation from intent
+    no_response: bool = False    # Lead went silent — skip reply pipeline, fire followups only
     expect_path: str = ""        # Expected classification path
     followups: int = 0           # How many follow-ups to run after this turn
     followup_cadence: list[float] | None = None  # Per-followup intervals (hours)
@@ -152,8 +153,8 @@ class Turn(BaseModel):
 
     @model_validator(mode="after")
     def require_message_or_intent(self) -> Turn:
-        if not self.message and not self.intent:
-            raise ValueError("Turn must have 'message' or 'intent' (both empty)")
+        if not self.message and not self.intent and not self.no_response:
+            raise ValueError("Turn must have 'message', 'intent', or 'no_response'")
         return self
 
 

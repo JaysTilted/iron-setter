@@ -194,7 +194,47 @@ SCENARIOS: list[dict[str, Any]] = [
             "seed_messages": _BAIT_OPENER_SEED,
             "tags": ["src:cold-sms", "hvac"],
         },
-        "conversation": [{"intent": "no response — ghost", "followups": 1, "followup_cadence": [6.0], "expect_path": "followup"}],
+        "conversation": [{"no_response": True, "followups": 1, "followup_cadence": [24.0], "expect_path": "followup"}],
+    },
+    {
+        "id": "13-ladder-day1-to-day8",
+        "category": "copy-dump",
+        "description": "Warm lead went silent — dump Days 1-8 ladder copy for voice review",
+        "lead": _lead("Miguel", "Plumbing", "+15555551224"),
+        "context": {
+            "seed_messages": _BAIT_OPENER_SEED + [
+                {"role": "lead", "content": "yeah let me see it", "hours_ago": 2.0},
+                {"role": "ai", "content": "nice. quick q — about how many leads a month are you getting now?", "hours_ago": 1.9},
+                {"role": "lead", "content": "maybe 15 from word of mouth", "hours_ago": 1.8},
+                {"role": "ai", "content": "got it — 10 min screen share so I can walk you through exactly how this would run for your shop. tomorrow 9am or 1pm CT?", "hours_ago": 1.7},
+            ],
+            "tags": ["src:cold-sms", "plumbing", "warm"],
+        },
+        "conversation": [{
+            "no_response": True,
+            "followups": 8,
+            "followup_cadence": [24.0, 24.0, 24.0, 24.0, 24.0, 24.0, 24.0, 24.0],
+            "expect_path": "followup",
+        }],
+    },
+    {
+        "id": "14-nurture-week1-rotation",
+        "category": "copy-dump",
+        "description": "Cold-but-once-warm lead — dump LT nurture Week 1 (7 themes) for voice review",
+        "lead": _lead("Dana", "Roofing", "+15555551225"),
+        "context": {
+            "seed_messages": _BAIT_OPENER_SEED + [
+                {"role": "lead", "content": "interesting, send me more info when you get a chance", "hours_ago": 240.0},
+                {"role": "ai", "content": "sure — here's the walkthrough: https://grow.ironautomations.com/watch. text me with any questions.", "hours_ago": 239.0},
+            ],
+            "tags": ["src:cold-sms", "roofing", "lt-nurture"],
+        },
+        "conversation": [{
+            "no_response": True,
+            "followups": 7,
+            "followup_cadence": [24.0, 24.0, 24.0, 24.0, 24.0, 24.0, 24.0],
+            "expect_path": "followup",
+        }],
     },
 ]
 

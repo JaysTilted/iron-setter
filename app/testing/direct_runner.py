@@ -772,6 +772,53 @@ async def run_single_test(
     prev_qual_notes: dict | None = None
 
     for turn_num, turn in enumerate(scenario.conversation, 1):
+        # Ghost turn: lead went silent. Skip reply pipeline entirely
+        # and drive the followup pipeline directly so the scenario
+        # reflects what actually happens in production when a lead
+        # never replies to Scott's opener.
+        if turn.no_response:
+            conversation.append({
+                "role": "turn",
+                "turn_number": turn_num,
+                "lead_message": "",
+                "ai_response": None,
+                "path": "followup",
+                "tools_used": [],
+                "issues": [],
+                "no_response": True,
+            })
+            # Fall through to the followup loop below; no reply side effects.
+            if turn.followups > 0:
+                per_turn_cadence = (
+                    _resolve_setter_cadence(entity_config, agent_type, turn.followups)
+                    if tenant_keys_override is not None
+                    else _resolve_cadence(turn.followup_cadence, turn.followups)
+                )
+                chat_table = entity_config.get("chat_history_table_name", "")
+                cumulative_hours = 0.0
+                for fu_num in range(1, turn.followups + 1):
+                    interval = per_turn_cadence[fu_num - 1]
+                    cumulative_hours += interval
+                    _backdate_mock_appointments(mock_config, interval)
+                    if tenant_keys_override is None:
+                        await _backdate_chat_history(chat_table, contact_id, interval)
+
+                    fu_ctx, fu_result = await _run_followup(
+                        entity_config, entity_id, contact_id,
+                        agent_type, channel, mock_ghl,
+                        token_tracker=test_token_usage,
+                        determination_only=scenario.determination_only,
+                        media_only=scenario.media_only,
+                        text_generator_only=scenario.text_generator_only,
+                        mock_media=scenario.mock_media,
+                        tenant_keys_override=tenant_keys_override,
+                        conversation_for_timeline=conversation,
+                        cumulative_backdate_hours=cumulative_hours,
+                    )
+                    fu_entry = _build_followup_result(fu_result, fu_num, after_turn=turn_num, ctx=fu_ctx)
+                    conversation.append(fu_entry)
+            continue
+
         # Dynamic lead generation
         if turn.intent and not turn.message:
             _tko = tenant_keys_override  # shorthand
