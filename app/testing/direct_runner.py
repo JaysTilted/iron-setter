@@ -827,11 +827,12 @@ async def run_single_test(
         ctx.qualification_notes = prev_qual_notes
 
         # Test mode: build timeline from in-memory conversation array
-        # so the pipeline doesn't need the chat history table
-        if tenant_keys_override is not None:  # simulator mode
-            ctx.timeline, ctx.chat_history = _build_test_timeline(
-                conversation, entity_config, lead_message, channel,
-            )
+        # so the pipeline doesn't need the chat history table.
+        # Applies to BOTH simulator mode and batch-mode E2E scenarios
+        # (seeded via TestContext.seed_messages and turn.message).
+        ctx.timeline, ctx.chat_history = _build_test_timeline(
+            conversation, entity_config, lead_message, channel,
+        )
 
         # Set token tracker and AI context
         _tko = tenant_keys_override
@@ -926,8 +927,8 @@ async def run_single_test(
                     text_generator_only=scenario.text_generator_only,
                     mock_media=scenario.mock_media,
                     tenant_keys_override=tenant_keys_override,
-                    conversation_for_timeline=conversation if tenant_keys_override else None,
-                    cumulative_backdate_hours=cumulative_hours if tenant_keys_override else 0,
+                    conversation_for_timeline=conversation,
+                    cumulative_backdate_hours=cumulative_hours,
                 )
                 fu_entry = _build_followup_result(fu_result, fu_num, after_turn=turn_num, ctx=fu_ctx)
                 conversation.append(fu_entry)
