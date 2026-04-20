@@ -75,6 +75,8 @@ async def deliver_response(ctx: PipelineContext) -> dict[str, Any]:
     # Email already sent in step 2 via GHL API (send_threaded_email).
     if not ctx.is_test_mode and ctx.channel.lower() != "email":
         from app.services.delivery_service import DeliveryService
+        from app.text_engine.agent import _scrub_dashes
+        ctx.messages = [_scrub_dashes(m) for m in ctx.messages]
         delivery_svc = DeliveryService(ctx.ghl, ctx.config)
         split_result = await delivery_svc.send_split_messages(
             contact_id=ctx.contact_id,

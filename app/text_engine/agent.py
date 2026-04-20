@@ -373,7 +373,7 @@ async def call_agent(ctx: PipelineContext) -> None:
             messages.append({"role": "user", "content": "Please provide your response to the lead."})
             continue
 
-        ctx.agent_response = raw
+        ctx.agent_response = _scrub_dashes(raw)
         ctx.agent_iterations = iteration + 1
         logger.info(
             "Agent done (iter=%d, len=%d): %s",
@@ -383,10 +383,30 @@ async def call_agent(ctx: PipelineContext) -> None:
         )
         return
 
-    # Max iterations reached — use last content
+    # Max iterations reached, use last content
     logger.warning("Agent hit max tool iterations (%d)", MAX_TOOL_ITERATIONS)
-    ctx.agent_response = last_content
+    ctx.agent_response = _scrub_dashes(last_content)
     ctx.agent_iterations = MAX_TOOL_ITERATIONS
+
+
+def _scrub_dashes(text: str) -> str:
+    """Replace em-dashes/en-dashes with natural punctuation.
+
+    LLMs (esp. Gemini) reflexively insert em-dashes even when prompted not to.
+    Em-dashes are an obvious AI tell in SMS. Belt-and-suspenders: scrub on the
+    way out, regardless of what the model produced.
+    """
+    if not text:
+        return text
+    import re as _re
+    s = text.replace(" \u2014 ", ", ").replace(" \u2013 ", ", ")
+    s = s.replace("\u2014 ", ", ").replace("\u2013 ", ", ")
+    s = s.replace(" \u2014", ",").replace(" \u2013", ",")
+    s = s.replace("\u2014", ", ").replace("\u2013", ", ")
+    s = _re.sub(r",\s*,", ",", s)
+    s = _re.sub(r"\s+,", ",", s)
+    s = _re.sub(r"  +", " ", s)
+    return s
 
 
 # =========================================================================
