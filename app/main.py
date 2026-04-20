@@ -220,9 +220,11 @@ async def lifespan(app: FastAPI):
     # Python-first scheduling: recover pending messages + start safety-net poller
     from app.workflows.message_scheduler_loop import recover_all_pending, run_safety_net_poller
     from app.services.debounce import debounce_startup_recovery
+    from app.workflows.ghl_conversation_sync_poller import run_conversation_sync_poller
     asyncio.create_task(recover_all_pending())
     asyncio.create_task(run_safety_net_poller())
     asyncio.create_task(debounce_startup_recovery())
+    asyncio.create_task(run_conversation_sync_poller())
     # Simulator: mark stale running/generating/analyzing simulations as failed
     from app.testing.simulator import recover_stale_simulations
     asyncio.create_task(recover_stale_simulations())
