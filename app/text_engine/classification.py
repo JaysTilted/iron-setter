@@ -788,7 +788,16 @@ async def _classify_response(ctx: PipelineContext) -> dict[str, Any]:
         "engaging with this thread; replying just adds noise. Only classify as dont_respond "
         "if the message reads as automated/templated, not as a personal message that "
         "happens to be polite.\n"
-        "</auto_reply_detection>"
+        "</auto_reply_detection>\n\n"
+        "<wrong_number_or_wrong_contact>\n## WRONG NUMBER / WRONG PERSON\n"
+        "If the lead says 'wrong number', 'wrong person', 'you have the wrong person', "
+        "'I'm not the owner', 'this isn't [business name]', or any signal that the "
+        "message reached someone other than the intended recipient — ALWAYS classify as "
+        "RESPOND. The reply path has a wrong_number_pivot script that sends one polite "
+        "SMS asking them to forward our info to the actual decision-maker (a receptionist "
+        "or family member often will). Treating these as dont_respond loses real-world "
+        "referral upside. Never classify these as dont_respond.\n"
+        "</wrong_number_or_wrong_contact>"
     )
 
     from app.models import log_prompt
