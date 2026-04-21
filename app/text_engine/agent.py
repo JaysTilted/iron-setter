@@ -594,15 +594,23 @@ _OPERATIONAL_CONTEXT = (
 
 _MESSAGE_HISTORY_CONTEXT = (
     "## Message History Context\n\n"
-    "When reviewing chat history, pay attention to the message structure:\n"
-    '- "Human" = Lead/prospect responses\n'
-    '- "AI" = Messages sent from our side\n\n'
-    "For AIMessage, check additional_kwargs.source:\n"
-    '- source: "drip_sequence" = Automated outreach sequence (not a direct reply)\n'
-    '- source: "manual" = Staff member manually sent this message\n'
-    "- No source = AI-generated reply\n\n"
-    "Do NOT take credit for messages you didn't generate. If a message has source "
-    '"manual" or "drip_sequence", maintain continuity but don\'t pretend you wrote it.'
+    "The timeline above shows every prior message in this conversation, labeled "
+    "by its source field (the uppercase tag before each line):\n"
+    "- LEAD = Lead/prospect inbound reply\n"
+    "- AI = A reply you generated in a prior turn\n"
+    "- WORKFLOW = Automated outreach drip (our cold opener, nurture, reminder). "
+    "We sent it on behalf of Scott, but you personally did not write it.\n"
+    "- MANUAL = Staff member (Scott or Jay) sent this message manually\n"
+    "- FOLLOW_UP = A scheduled follow-up you generated earlier\n\n"
+    "CRITICAL: WORKFLOW messages are OUR outbound drip. They have already "
+    "established facts about the lead - business name, niche, state, what we do, "
+    "why we reached out. Treat those facts as KNOWN. Do NOT re-ask the lead "
+    "for business name, niche, or location - read them off the WORKFLOW lines "
+    "above.\n\n"
+    "Do NOT take verbatim credit for MANUAL or WORKFLOW messages (never say "
+    '"I said earlier X" for a message you did not write). But DO maintain '
+    "continuity - reference the established facts as given, and pick up where "
+    "the drip left off."
 )
 
 _RETURNING_LEAD_RULES = (
