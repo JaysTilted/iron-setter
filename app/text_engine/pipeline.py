@@ -47,12 +47,25 @@ from app.tools.transfer_to_human import execute_transfer
 
 logger = logging.getLogger(__name__)
 
-# Source value → GHL pipeline name mapping (3-pipeline routing)
+# Source value → GHL pipeline name mapping.
+#
+# 2026-04-23 pipeline consolidation reduced the GHL account to exactly two
+# pipelines: "Sales Pipeline" (cold replies + discovery calls + close) and
+# "Onboarding" (post-close fulfillment). The old "AI Setter", "Auto
+# Reactivation", and "Reactivation Campaign" pipelines were DELETED. Every
+# live lead source should resolve to "Sales Pipeline" now — landing an
+# interested reply in "Onboarding" would skip the sales stage entirely and
+# make it look like an active client was mid-fulfillment.
 _SOURCE_TO_PIPELINE: dict[str, str] = {
-    "Auto Reactivation": "Auto Reactivation",
-    "Reactivation Campaign": "Reactivation Campaign",
+    # All current sources → Sales Pipeline / Engaged stage.
+    # Keep this map explicit even though the value is uniform — the old code
+    # fell through to `pipelines[0]` on unknown sources, which silently
+    # routed opps to whichever pipeline GHL happened to return first
+    # (today: Onboarding — the WeatherTite Roofing bug, 2026-04-24).
 }
-# Default (any source not in this dict) → "AI Setter"
+# Default pipeline when the source isn't in the map above. Used to be
+# "AI Setter" (deleted 2026-04-23) — MUST match a pipeline that exists.
+_DEFAULT_PIPELINE_NAME = "Sales Pipeline"
 
 
 def _cache_derived_values(ctx: PipelineContext) -> None:
@@ -832,8 +845,20 @@ async def ensure_opportunity(ctx: PipelineContext) -> None:
             return
 
         lead_source = (ctx.lead.get("source") or "") if ctx.lead else ""
-        pipeline_name = _SOURCE_TO_PIPELINE.get(lead_source, "AI Setter")
-        pipeline = next((p for p in pipelines if p.get("name") == pipeline_name), pipelines[0])
+        pipeline_name = _SOURCE_TO_PIPELINE.get(lead_source, _DEFAULT_PIPELINE_NAME)
+        pipeline = next((p for p in pipelines if p.get("name") == pipeline_name), None)
+        if pipeline is None:
+            # Fail closed — do NOT silently fall through to pipelines[0], which
+            # caused the 2026-04-24 "Onboarding/Fulfillment" misrouting bug
+            # after the AI Setter pipeline was deleted. Skip opportunity
+            # management entirely and let Scott place the contact manually.
+            logger.error(
+                "OPPORTUNITY | target pipeline %s not found in location — "
+                "skipping opportunity create/update (pipelines_available=%s)",
+                pipeline_name,
+                [p.get("name") for p in pipelines],
+            )
+            return
 
         ctx.pipeline_id = pipeline["id"]
         for stage in pipeline.get("stages", []):
