@@ -58,9 +58,9 @@ class Settings(BaseSettings):
     # GHL Marketplace OAuth
     ghl_oauth_client_id: str = ""
     ghl_oauth_client_secret: str = ""
-    ghl_oauth_redirect_uri: str = "https://setter.ironops.xyz/oauth/ghl/callback"
+    ghl_oauth_redirect_uri: str = "https://rg-backend.23.88.127.9.sslip.io/oauth/ghl/callback"
     ghl_marketplace_authorize_url: str = "https://marketplace.gohighlevel.com/oauth/chooselocation"
-    ghl_app_base_url: str = "https://setter.ironops.xyz"
+    ghl_app_base_url: str = "https://rg-backend.23.88.127.9.sslip.io"
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 
