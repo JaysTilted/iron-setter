@@ -137,18 +137,12 @@ async def provision_setter(
 
     asset_manifest = await provision_ghl_assets(client)
 
-    if body.calendar_id and asset_manifest.get("pipeline", {}).get("id"):
-        pipeline = asset_manifest["pipeline"]
-        body_services = body.services
-    else:
-        body_services = body.services
-
     config = build_config(
         niche=body.niche,
         business_name=body.business_name,
         setter_name=body.setter_name,
         tone=body.tone,
-        services=body_services if body_services else None,
+        services=body.services if body.services else None,
         calendar_id=body.calendar_id,
         calendar_name=body.calendar_name,
         booking_link=body.booking_link,
