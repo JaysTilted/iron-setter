@@ -11,6 +11,7 @@ Only if all three pass does the pipeline proceed to agent routing.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from prefect import task
@@ -18,6 +19,11 @@ from prefect import task
 from app.models import PipelineContext
 from app.services.ai_client import classify
 from app.text_engine.model_resolver import resolve_model, resolve_temperature
+
+# Precompiled patterns for the keyword-fallback gate so we don't recompile
+# them on every inbound.
+_PUNCT_RE = re.compile(r"[^\w\s]")
+_WS_RE = re.compile(r"\s+")
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +99,37 @@ async def classification_gate(ctx: PipelineContext) -> None:
 
     ctx.classification_gates.append({"gate": "Stop Bot", "result": "passed", "reason": ""})
 
+    # Gate 1b: Reply-intent tag check (free — no LLM call).
+    # If the upstream Python classifier already bucketed this reply as DNC /
+    # not-interested / automated and wrote the corresponding tag to GHL, we
+    # should NOT rebut. 2026-04-24 fix: previously iron-setter happily sent
+    # "Got it, totally get it. Most people who end up with us said the same
+    # at first..." to a lead that replied "No thank you" — because the
+    # downstream LLM gates defaulted to `respond` when the signal wasn't
+    # loud enough for the TTH gate's opt-out definition.
+    if _check_reply_intent_tags(ctx):
+        ctx.classification_gates.append({
+            "gate": "Reply Intent Tag",
+            "result": "dont_respond",
+            "reason": ctx.response_reason[:200],
+        })
+        return
+    ctx.classification_gates.append({"gate": "Reply Intent Tag", "result": "passed", "reason": ""})
+
+    # Gate 1c: Keyword fallback (free — no LLM call).
+    # If the inbound body matches a DNC / not-interested keyword (STOP,
+    # "no thank you", "not interested", curse words), short-circuit to
+    # dont_respond instead of falling through to the LLM gates. Protects us
+    # when the LLM is misconfigured or down — we fail CLOSED, not "respond".
+    if _check_keyword_fallback(ctx):
+        ctx.classification_gates.append({
+            "gate": "Keyword Fallback",
+            "result": ctx.response_path or "dont_respond",
+            "reason": ctx.response_reason[:200],
+        })
+        return
+    ctx.classification_gates.append({"gate": "Keyword Fallback", "result": "passed", "reason": ""})
+
     # Gate 2: Transfer To Human / Opt Out (LLM classifier)
     tth_result = await _classify_transfer(ctx)
     ctx.classification_gates.append({
@@ -142,6 +179,139 @@ def _check_stop_bot(ctx: PipelineContext) -> bool:
         ctx.response_path = "stop_bot"
         ctx.response_reason = "Contact has stop bot tag"
         logger.info("Stop bot tag detected — skipping all AI processing")
+        return True
+    return False
+
+
+# Tags written by the upstream Python classifier (iron-sms). When any of
+# these are present on the contact we should NOT rebut — the reply was
+# already classified and the drip gate logic is owned elsewhere.
+_REPLY_INTENT_SKIP_TAGS: frozenset[str] = frozenset({
+    "replied-do-not-contact",
+    "replied-not-interested",
+    "replied-automated",
+    "opt-out", "opt_out",
+    "do-not-contact", "do_not_contact",
+    "tcpa-risk", "tcpa_risk", "tcpa-threat",
+})
+
+
+def _check_reply_intent_tags(ctx: PipelineContext) -> bool:
+    """Skip rebut when the upstream classifier already bucketed the reply.
+
+    Returns True if response_path was set to ``dont_respond``.
+    """
+    tags_lower = {(t or "").strip().lower() for t in (ctx.contact_tags or [])}
+    hit = _REPLY_INTENT_SKIP_TAGS & tags_lower
+    if hit:
+        ctx.response_path = "dont_respond"
+        ctx.response_reason = (
+            f"Upstream classifier already set DNC/not-interested intent "
+            f"(tags: {sorted(hit)})"
+        )
+        logger.info(
+            "Reply-intent tag hit — skipping rebut (tags=%s)", sorted(hit)
+        )
+        return True
+    return False
+
+
+# Cheap keyword fallbacks for when the LLM is unavailable or slow. Matches
+# the iron-sms classifier's `_DNC_EXACT` + `_DNC_CONTAINS` intent set plus
+# common "not interested" phrases (the Gemini gate can miss these when the
+# body is tiny and context is sparse).
+# Audit-cycle-1 P1-2 (2026-04-24): added "yes stop" / "ok stop" / "please
+# stop" / "just stop" compound phrases. These pass an agreement token
+# before the stop keyword (e.g. reply to "do you want to continue?") and
+# were reaching the LLM where they could be miscategorized as ``continue``.
+_KEYWORD_DNC_EXACT: frozenset[str] = frozenset({
+    "stop", "end", "cancel", "quit", "unsubscribe",
+    "yes stop", "ok stop", "okay stop", "just stop", "please stop",
+    "yes remove", "yes unsubscribe", "ok unsubscribe",
+})
+_KEYWORD_DNC_CONTAINS: tuple[str, ...] = (
+    "stop texting", "stop messaging", "stop contacting",
+    "stop the texts", "stop the messages", "stop the drip",
+    "stop sending", "stop calling",
+    # Audit-cycle-3 P2 fix (2026-04-24): the punctuation-stripping normalizer
+    # turns "don't" → "don t" (apostrophe → space), so we include both the
+    # apostrophe form and the post-normalize space form of each DNC token.
+    "do not contact", "don't contact", "dont contact", "don t contact",
+    "don't text", "dont text", "don t text",
+    "leave me alone",
+    "remove me", "remove my number", "take me off",
+    # Audit-cycle-4 P1-A fix (2026-04-24): removed `"can't text"` / `"cant text"`
+    # / `"can t text"` — substring-contains against these phrases false-positives
+    # on temporary-unavailability replies like "can t text back right now, call
+    # me instead" which is a call preference, NOT a DNC request. Let the TTH
+    # LLM gate decide on ambiguous "can't text" variants.
+)
+_KEYWORD_NOT_INTERESTED_EXACT: frozenset[str] = frozenset({
+    "no", "nope", "no thanks", "no thank you", "not interested",
+    "not at this time", "not now", "all set", "we're good", "we are good",
+})
+_KEYWORD_NOT_INTERESTED_CONTAINS: tuple[str, ...] = (
+    "not interested", "no thank you", "all set", "not a fit",
+    "already have", "already use", "pass", "i'll pass", "i pass",
+)
+
+
+def _last_inbound_body(ctx: PipelineContext) -> str:
+    """Best-effort pull of the most recent inbound message body.
+
+    Primary source is ``ctx.message`` (the consolidated inbound text set by
+    ``pipeline.py:_consolidate_inbound`` — it joins all unanswered inbound
+    bodies since the last AI/staff turn). Falls back to walking
+    ``ctx.chat_history`` for the most recent ``role == 'human'`` row, in
+    case the gate runs before consolidation populated ``ctx.message``.
+    """
+    msg = getattr(ctx, "message", "") or ""
+    if isinstance(msg, str) and msg.strip():
+        return msg.strip()
+    history = getattr(ctx, "chat_history", None) or []
+    for row in reversed(history):
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("role") or "").lower() != "human":
+            continue
+        content = row.get("content")
+        if isinstance(content, str) and content.strip():
+            return content.strip()
+    return ""
+
+
+def _check_keyword_fallback(ctx: PipelineContext) -> bool:
+    """Free keyword gate. Fail-closed for DNC / not-interested bodies.
+
+    Returns True if response_path was set.
+    """
+    body = _last_inbound_body(ctx)
+    if not body:
+        return False
+    # Audit-cycle-2 P2-C fix (2026-04-24): strip ALL punctuation before the
+    # exact-match check so "Yes, stop." / "Ok, stop!" normalize to
+    # "yes stop" / "ok stop" and hit `_KEYWORD_DNC_EXACT`. Previously only
+    # trailing `.!? ` was stripped, leaving commas embedded — the TCPA
+    # compound-phrase gate was being bypassed by the most common real-world
+    # punctuation.
+    normalized = body.lower().strip()
+    normalized = _PUNCT_RE.sub(" ", normalized)   # punctuation → space
+    normalized = _WS_RE.sub(" ", normalized).strip()
+    if normalized in _KEYWORD_DNC_EXACT or any(
+        token in normalized for token in _KEYWORD_DNC_CONTAINS
+    ):
+        ctx.response_path = "opt_out"
+        ctx.response_reason = f"Keyword DNC match on inbound body: {body[:80]!r}"
+        logger.info("Keyword DNC fallback — routing to opt_out")
+        return True
+    if normalized in _KEYWORD_NOT_INTERESTED_EXACT or any(
+        token in normalized for token in _KEYWORD_NOT_INTERESTED_CONTAINS
+    ):
+        ctx.response_path = "dont_respond"
+        ctx.response_reason = (
+            f"Keyword not-interested match on inbound body: {body[:80]!r}"
+        )
+        logger.info("Keyword not-interested fallback — skipping rebut")
         return True
     return False
 

@@ -23,11 +23,32 @@ Three layers of safety:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from dataclasses import dataclass, field
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+def _coerce_system_config(config: dict[str, Any]) -> dict[str, Any]:
+    """Return ``config['system_config']`` as a dict, parsing JSON if needed.
+
+    The sync_poller path copies the DB entity row into ``config`` via
+    ``dict(entity)``, which preserves ``system_config`` as a JSON string
+    when it was fetched that way. Consumers that call ``.get(...)`` on
+    the string crash with `'str' object has no attribute 'get'`
+    (2026-04-24 bug found during E2E sweep on the test contact).
+    """
+    sc = config.get("system_config") or {}
+    if isinstance(sc, str):
+        try:
+            sc = json.loads(sc)
+        except Exception:
+            sc = {}
+    if not isinstance(sc, dict):
+        sc = {}
+    return sc
 
 # Default debounce window (seconds) — configurable per client via system_config
 DEFAULT_DEBOUNCE_SECONDS = 90
@@ -300,7 +321,7 @@ def _get_reply_window_sleep(config: dict[str, Any], agent_type: str = "") -> int
     from datetime import datetime
     from zoneinfo import ZoneInfo
 
-    sys_config = config.get("system_config") or {}
+    sys_config = _coerce_system_config(config)
     setters = sys_config.get("setters") or {}
 
     # Resolve setter
@@ -389,7 +410,7 @@ def _get_debounce_window(config: dict[str, Any], agent_type: str = "") -> int:
     Reads from system_config.setters[setter_key].conversation.debounce_window_seconds.
     Falls back to DEFAULT_DEBOUNCE_SECONDS (90s) if not configured.
     """
-    sys_config = config.get("system_config") or {}
+    sys_config = _coerce_system_config(config)
     setters = sys_config.get("setters") or {}
 
     # Resolve setter key from agent_type (e.g., "setter_1", "setter_2" → find matching setter)

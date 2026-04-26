@@ -239,6 +239,13 @@ async def _sync_one_entity(entity: dict[str, Any]) -> None:
 
     ghl = GHLClient(api_key=ghl_api_key, location_id=ghl_location_id)
     config = dict(entity)
+    # sync_poller previously copied the entity row verbatim via ``dict(entity)``,
+    # which preserved ``system_config`` as a JSON string. Downstream consumers
+    # (`_get_debounce_window`, `_get_reply_window_sleep`, etc.) then crashed
+    # with ``'str' object has no attribute 'get'`` (2026-04-24 fix). The
+    # debounce module now defends itself but passing the parsed dict here
+    # also saves a parse on every consumer call.
+    config["system_config"] = sc if isinstance(sc, dict) else {}
 
     # Contact discovery: union of two sources.
     #   A) rg_chat active contacts (last N days) — contacts we already track
