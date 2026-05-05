@@ -197,13 +197,15 @@ async def _cancel_and_reschedule(
         except Exception as e:
             logger.warning("DEBOUNCE | reactivation reschedule failed (non-blocking): %s", e)
 
-        # Clear GHL follow-up field
-        ghl_api_key = config.get("ghl_api_key", "")
+        # Clear GHL follow-up field — OAuth-first, PIT fallback during V1 dual-path soak
         ghl_location_id = config.get("ghl_location_id", "")
-        if ghl_api_key and ghl_location_id:
-            from app.services.ghl_client import GHLClient
-            ghl = GHLClient(api_key=ghl_api_key, location_id=ghl_location_id)
-            await update_ghl_followup_field(ghl, contact_id)  # Clear
+        if ghl_location_id:
+            from app.marketplace.ghl_client_factory import build_ghl_client
+            try:
+                ghl = await build_ghl_client(ghl_location_id, ghl_api_key=config.get("ghl_api_key", ""))
+                await update_ghl_followup_field(ghl, contact_id)  # Clear
+            except RuntimeError as e:
+                logger.warning("DEBOUNCE | ghl_auth_unavailable | location=%s | %s", ghl_location_id, e)
 
     except Exception:
         logger.exception("DEBOUNCE | cancel_and_reschedule failed | contact=%s", contact_id)

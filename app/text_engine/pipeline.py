@@ -37,7 +37,6 @@ from app.text_engine.timeline import build_timeline
 from app.text_engine.utils import get_timezone
 from app.models import PipelineContext
 from app.services.ai_client import set_ai_context, clear_ai_context
-from app.services.ghl_client import GHLClient
 from app.services.ghl_links import build_ghl_contact_url
 from app.services.postgres_client import postgres
 from app.services.mattermost import post_message as post_slack_message
@@ -95,8 +94,10 @@ async def text_engine(ctx: PipelineContext) -> dict[str, Any]:
     from app.text_engine.model_resolver import refresh_defaults_if_stale
     await refresh_defaults_if_stale()
 
-    # Create shared GHL client once for the entire pipeline
-    ctx.ghl = GHLClient(api_key=ctx.ghl_api_key, location_id=ctx.ghl_location_id)
+    # Create shared GHL client once for the entire pipeline.
+    # OAuth-first via marketplace.installs, falls back to PIT during V1 dual-path soak.
+    from app.marketplace.ghl_client_factory import build_ghl_client
+    ctx.ghl = await build_ghl_client(ctx.ghl_location_id, ghl_api_key=ctx.ghl_api_key)
 
     # Set per-request AI context (API key + token tracker) for all nested AI calls
     tenant_keys = ctx.tenant_ai_keys or {}
@@ -230,7 +231,9 @@ async def run_pipeline_with_tracking(ctx: PipelineContext) -> dict[str, Any]:
     # Create shared GHL client once for the entire pipeline. This was the
     # missing piece — the followup path was running with ctx.ghl == None and
     # crashing the moment any downstream code tried to use it.
-    ctx.ghl = GHLClient(api_key=ctx.ghl_api_key, location_id=ctx.ghl_location_id)
+    # OAuth-first via marketplace.installs, falls back to PIT during V1 dual-path soak.
+    from app.marketplace.ghl_client_factory import build_ghl_client
+    ctx.ghl = await build_ghl_client(ctx.ghl_location_id, ghl_api_key=ctx.ghl_api_key)
 
     # Set per-request AI context (API keys + token tracker) for nested calls
     tenant_keys = ctx.tenant_ai_keys or {}

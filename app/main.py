@@ -806,10 +806,8 @@ if False:  # Dead code — form_submission_webhook merged into /resolve-outreach
         timing_config = resolve_result.get("timing_config", {})
         channel = extract_custom_field(body, "Channel") or "SMS"
 
-        ghl = GHLClient(
-            api_key=config.get("ghl_api_key", ""),
-            location_id=config.get("ghl_location_id", ""),
-        )
+        from app.marketplace.ghl_client_factory import build_ghl_client_for_entity
+        ghl = await build_ghl_client_for_entity(config)
 
         scheduled_count = await schedule_outreach_positions(
             entity_id=entity_id,
@@ -933,7 +931,8 @@ async def resolve_outreach_webhook(request: Request, entity_ref: str = ""):
         timing_config = resolve_result.get("timing_config", {})
         channel = extract_custom_field(body, "Channel") or "SMS"
 
-        ghl = GHLClient(api_key=config.get("ghl_api_key", ""), location_id=config.get("ghl_location_id", ""))
+        from app.marketplace.ghl_client_factory import build_ghl_client_for_entity
+        ghl = await build_ghl_client_for_entity(config)
 
         scheduled_count = await schedule_outreach_positions(
             entity_id=entity_id,
@@ -1148,8 +1147,8 @@ async def call_event_webhook(entity_ref: str = "", request: Request = None, test
     reactivation_rescheduled = False
 
     try:
-        from app.services.ghl_client import GHLClient
-        ghl = GHLClient(api_key=config.get("ghl_api_key", ""), location_id=config.get("ghl_location_id", ""))
+        from app.marketplace.ghl_client_factory import build_ghl_client_for_entity
+        ghl = await build_ghl_client_for_entity(config)
 
         # Small delay to let GHL index the call record
         await asyncio.sleep(3)
@@ -1482,8 +1481,8 @@ async def _handle_human_activity(
     reactivation_rescheduled = False
 
     try:
-        from app.services.ghl_client import GHLClient
-        ghl = GHLClient(api_key=config.get("ghl_api_key", ""), location_id=config.get("ghl_location_id", ""))
+        from app.marketplace.ghl_client_factory import build_ghl_client_for_entity
+        ghl = await build_ghl_client_for_entity(config)
 
         # 1. Pause bot (checks toggle internally)
         try:
