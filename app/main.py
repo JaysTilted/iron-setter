@@ -902,7 +902,6 @@ async def resolve_outreach_webhook(request: Request, entity_ref: str = ""):
         from app.models import OutreachResolverBody
         from app.workflows.outreach_resolver import resolve_outreach
         from app.workflows.outreach_scheduler import schedule_outreach_positions
-        from app.services.ghl_client import GHLClient
 
         location = extract_location(body)
         resolver_body = OutreachResolverBody(

@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any
 
 from app.services.ghl_client import GHLClient
@@ -288,7 +288,8 @@ async def _sync_one_entity(entity: dict[str, Any]) -> None:
         )
         return
 
-    ghl = GHLClient(api_key=ghl_api_key, location_id=ghl_location_id)
+    from app.marketplace.ghl_client_factory import build_ghl_client
+    ghl = await build_ghl_client(ghl_location_id, ghl_api_key=ghl_api_key)
     config = dict(entity)
     # sync_poller previously copied the entity row verbatim via ``dict(entity)``,
     # which preserved ``system_config`` as a JSON string. Downstream consumers
@@ -434,6 +435,17 @@ async def _sync_one_entity(entity: dict[str, Any]) -> None:
         pass_counts["pipelines_triggered"], pass_counts["stop_bot_tags_applied"],
         pass_counts["errors"],
     )
+
+    # Persist the watermark AFTER a successful pass. If `latest_chat_ts` is
+    # None (no rows in the window), bump to `pass_started_at` so the next
+    # poll narrows the candidate set instead of re-running the full
+    # bootstrap window. Mid-pass crashes leave the prior watermark intact,
+    # which is the safe default — next pass re-scans the same window.
+    if pass_counts["errors"] == 0:
+        new_watermark = latest_chat_ts or pass_started_at
+        prior = _ENTITY_WATERMARKS.get(entity_id)
+        if prior is None or new_watermark > prior:
+            _ENTITY_WATERMARKS[entity_id] = new_watermark
 
 
 async def run_conversation_sync_poller() -> None:

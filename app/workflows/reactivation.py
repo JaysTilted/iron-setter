@@ -1569,7 +1569,8 @@ async def reactivate_lead(
         await tracker.save()
         return {"success": False, "error": "Missing GHL credentials"}, 400
 
-    ghl = GHLClient(api_key=ghl_api_key, location_id=ghl_location_id)
+    from app.marketplace.ghl_client_factory import build_ghl_client
+    ghl = await build_ghl_client(ghl_location_id, ghl_api_key=ghl_api_key)
 
     # ── Set AI context with per-tenant keys ──
     from app.main import _resolve_tenant_ai_keys

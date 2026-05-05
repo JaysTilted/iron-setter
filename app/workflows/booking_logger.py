@@ -21,7 +21,6 @@ from zoneinfo import ZoneInfo
 from prefect import flow
 
 from app.models import BookingWebhookBody
-from app.services.ghl_client import GHLClient
 from app.services.supabase_client import supabase
 from app.services.postgres_client import postgres
 from app.services.workflow_tracker import WorkflowTracker
@@ -243,10 +242,8 @@ async def process_booking_log(
     try:
 
         # ── 2. Parallel fetch: lead, existing booking, AI detection, conv sync ──
-        ghl = GHLClient(
-            api_key=config.get("ghl_api_key", ""),
-            location_id=config.get("ghl_location_id", ""),
-        )
+        from app.marketplace.ghl_client_factory import build_ghl_client_for_entity
+        ghl = await build_ghl_client_for_entity(config)
 
         async def _conv_sync():
             chat_table = config.get("chat_history_table_name", "")

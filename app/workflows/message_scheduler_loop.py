@@ -289,7 +289,6 @@ async def _fire_followup(row: dict[str, Any]) -> dict[str, Any]:
 
     from app.main import supabase, build_run_tags, _resolve_tenant_ai_keys
     from app.models import PipelineContext
-    from app.services.ghl_client import GHLClient
     from app.services.message_scheduler import (
         schedule_followup_chain,
         update_ghl_followup_field,
@@ -369,7 +368,8 @@ async def _fire_followup(row: dict[str, Any]) -> dict[str, Any]:
         else:
             # Follow-up was skipped — clear GHL field, don't chain
             try:
-                ghl = GHLClient(api_key=config.get("ghl_api_key", ""), location_id=config.get("ghl_location_id", ""))
+                from app.marketplace.ghl_client_factory import build_ghl_client_for_entity
+                ghl = await build_ghl_client_for_entity(config)
                 await update_ghl_followup_field(ghl, contact_id)  # Clear
             except Exception:
                 pass
@@ -383,7 +383,6 @@ async def _fire_followup(row: dict[str, Any]) -> dict[str, Any]:
 async def _fire_outreach(row: dict[str, Any]) -> dict[str, Any]:
     """Fire an outreach message — deliver pre-resolved content via GHL."""
     from app.main import supabase
-    from app.services.ghl_client import GHLClient
     from app.services.delivery_service import DeliveryService
 
     entity_id = row["entity_id"]
@@ -416,8 +415,9 @@ async def _fire_outreach(row: dict[str, Any]) -> dict[str, Any]:
         logger.warning("SCHEDULER_LOOP | outreach pos %d has no SMS or email content", position)
         return {"status": "skipped", "result": "no_content", "reason": "Position has no SMS or email"}
 
-    # Deliver via GHL API with delivery confirmation
-    ghl = GHLClient(api_key=config.get("ghl_api_key", ""), location_id=config.get("ghl_location_id", ""))
+    # Deliver via GHL API with delivery confirmation. OAuth-first via factory.
+    from app.marketplace.ghl_client_factory import build_ghl_client_for_entity
+    ghl = await build_ghl_client_for_entity(config)
     delivery_svc = DeliveryService(ghl, config)
 
     if sms:
@@ -456,7 +456,6 @@ async def _fire_outreach(row: dict[str, Any]) -> dict[str, Any]:
 async def _fire_reactivation(row: dict[str, Any]) -> dict[str, Any]:
     """Fire a reactivation message — run reactivation pipeline, then start FU cadence."""
     from app.main import supabase, _resolve_tenant_ai_keys
-    from app.services.ghl_client import GHLClient
     from app.services.message_scheduler import schedule_followup_chain
     from app.workflows.reactivation_scheduler import reschedule_reactivation
 
@@ -473,10 +472,8 @@ async def _fire_reactivation(row: dict[str, Any]) -> dict[str, Any]:
     tenant_keys = await _resolve_tenant_ai_keys(entity_id)
 
     slug = config.get("slug") or config.get("name", entity_id[:8])
-    ghl = GHLClient(
-        api_key=config.get("ghl_api_key", ""),
-        location_id=config.get("ghl_location_id", ""),
-    )
+    from app.marketplace.ghl_client_factory import build_ghl_client_for_entity
+    ghl = await build_ghl_client_for_entity(config)
 
     try:
         # Run the existing reactivation pipeline (generates message, doesn't deliver)
@@ -612,11 +609,8 @@ async def _fire_human_takeover(row: dict[str, Any]) -> dict[str, Any]:
     try:
         from app.main import supabase
         config = await supabase.resolve_entity(entity_id)
-        from app.services.ghl_client import GHLClient
-        ghl = GHLClient(
-            api_key=config.get("ghl_api_key", ""),
-            location_id=config.get("ghl_location_id", ""),
-        )
+        from app.marketplace.ghl_client_factory import build_ghl_client_for_entity
+        ghl = await build_ghl_client_for_entity(config)
         await ghl.remove_tag(contact_id, "stop bot")
         logger.info(
             "SCHEDULER_LOOP | human_takeover | stop bot tag removed | contact=%s",

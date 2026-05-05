@@ -854,13 +854,10 @@ async def fire_post_appointment(row: dict[str, Any]) -> dict[str, Any]:
             messages = [secured_message]
 
         # ── 11. Deliver via DeliveryService (same as all other workflows) ──
-        from app.services.ghl_client import GHLClient
+        from app.marketplace.ghl_client_factory import build_ghl_client_for_entity
         from app.services.delivery_service import DeliveryService
 
-        ghl = GHLClient(
-            api_key=config.get("ghl_api_key", ""),
-            location_id=config.get("ghl_location_id", ""),
-        )
+        ghl = await build_ghl_client_for_entity(config)
         delivery_svc = DeliveryService(ghl, config)
 
         to_phone = row.get("to_phone")

@@ -1150,7 +1150,8 @@ async def _deliver_and_log(
 
     # 1. Deliver via GHL API with delivery confirmation (skip in dry_run mode)
     if not dry_run:
-        ghl = GHLClient(api_key=config.get("ghl_api_key", ""), location_id=config.get("ghl_location_id", ""))
+        from app.marketplace.ghl_client_factory import build_ghl_client_for_entity
+        ghl = await build_ghl_client_for_entity(config)
         delivery_svc = DeliveryService(ghl, config)
         delivery_result = await delivery_svc.send_sms(
             contact_id=contact_id, message=message, message_type="missed_call",
@@ -1349,10 +1350,8 @@ async def process_missed_call(
     )
 
     # ── 1.5. GHL conversation sync (always runs — ensures chat history is complete) ──
-    ghl = GHLClient(
-        api_key=config.get("ghl_api_key", ""),
-        location_id=config.get("ghl_location_id", ""),
-    )
+    from app.marketplace.ghl_client_factory import build_ghl_client_for_entity
+    ghl = await build_ghl_client_for_entity(config)
     chat_table = config.get("chat_history_table_name", "")
 
     result = {"action": "unknown"}
